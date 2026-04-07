@@ -6,6 +6,7 @@
 #define ROW 2
 #define COL 3
 #define MAX_CUPSIZE 5
+#define MAX_CUSTOMER_SIZE 5
 int ice_num = 0;
 
 typedef struct stack{
@@ -30,10 +31,16 @@ typedef struct customer{
     Stack *icecream_cup;
 }Customer;
 
+typedef struct queue{
+    int front, rear;
+    Customer* cus[MAX_CUSTOMER_SIZE+1];
+}Queue;
+
 typedef struct owner{
     int total_income;
     //price per cupsize
     int priceOfCupsize[MAX_CUPSIZE];
+    Queue* q;
 } Owner;
 
 Icecream* create_icecream(){
@@ -42,6 +49,7 @@ Icecream* create_icecream(){
     memset(ice, 0, sizeof(Icecream));
     return ice;
 }
+
 Icecream*** create_icecream_table(int row, int col){
     int i;
     Icecream*** table;
@@ -50,6 +58,31 @@ Icecream*** create_icecream_table(int row, int col){
         table[i] = (Icecream**) malloc (sizeof(Icecream*) * col);
     }
     return table;
+}
+
+void init_queue(Queue* q){
+    q->front = q->rear = 0;
+}
+
+int is_empty_queue(Queue* q){
+    return(q->front == q->rear);
+}
+
+int is_full_queue(Queue* q){
+    return((q->rear+1)%(MAX_CUSTOMER_SIZE+1) == q->front);
+}
+
+int enqueue(Queue* q, Customer* cus){
+    if(is_full_queue(q)) return -1;
+    q->rear = (q->rear+1) % (MAX_CUSTOMER_SIZE+1);
+    q->cus[q->rear] = cus;
+    return 0;
+}
+
+Customer* dequeue(Queue* q){
+    if(is_empty_queue(q)) return NULL;
+    q->front = (q->front+1)%(MAX_CUSTOMER_SIZE+1);
+    return q->cus[q->front];
 }
 
 void table_init(){
@@ -104,6 +137,18 @@ void owner_init(Owner *ice_owner){
         ice_owner->priceOfCupsize[i] = (i+1)*100;
     }
     ice_owner->total_income = 0;
+    Queue* q = (Queue*)malloc(sizeof(Queue));
+    memset(q, 0, sizeof(Queue));
+    init_queue(q);
+    ice_owner->q = q;
+}
+
+int is_empty(Stack* icecream_cup){
+    return (icecream_cup->top == -1);
+}
+
+int is_full(Stack* icecream_cup){
+    return (icecream_cup->top == (icecream_cup->capacity-1));
 }
 
 Customer* create_customer(){
@@ -118,8 +163,9 @@ void cal_sales(Owner *ice_owner, int cupsize, int penalty){
     income -= (penalty*100);
     ice_owner->total_income = ice_owner->total_income + income;
 
-    printf("나 : 이 번 주문으로 %d원, 총 %d원 벌었다!\n", income, ice_owner->total_income);
+    printf("사장 : 이 번 주문으로 %d원, 총 %d원 벌었다!\n", income, ice_owner->total_income);
 }
+
 /*void table_print() {
     int i,j;
     char print_temp[512];
@@ -140,18 +186,15 @@ void cal_sales(Owner *ice_owner, int cupsize, int penalty){
     }
 }*/
 
+void stock_refill(Icecream* ice, Owner* ice_owner){
+    ice->stock += 5;
+    ice_owner->total_income -= 250;
+}
+
 void init_cup(Stack* icecream_cup){
     icecream_cup->capacity = MAX_CUPSIZE;
     icecream_cup->top = -1;
     icecream_cup->icecream_number = (int*)malloc(icecream_cup->capacity*sizeof(int));
-}
-
-int is_empty(Stack* icecream_cup){
-    return (icecream_cup->top == -1);
-}
-
-int is_full(Stack* icecream_cup){
-    return (icecream_cup->top == (icecream_cup->capacity-1));
 }
 
 void push(int choice, Stack *icecream_cup){
@@ -165,23 +208,6 @@ void push(int choice, Stack *icecream_cup){
 int pop(Stack* icecream_cup){
     if(is_empty(icecream_cup)) return -1;
     else return icecream_cup->icecream_number[icecream_cup->top--];
-}
-
-void prepare_order(Stack *icecream_cup){
-    printf("주문 수행 시작\n");
-    init_cup(icecream_cup);
-
-    int cupsize = -1;
-    printf("나 : 고객님이 요청하신 컵사이즈가 뭐였지?\n");
-    scanf("%d", &cupsize);
-
-    int i, choice;
-
-    for(i=0; i<cupsize; i++){
-        printf("나 : 몇 번 아이스크림을 쌓아야 하지?\n");
-        scanf("%d", &choice);
-        push(choice, icecream_cup);
-    }
 }
 
 int delivery_order(Customer* cus){
@@ -202,9 +228,7 @@ int delivery_order(Customer* cus){
                 printf("고객 : 내가 말한건 이 맛이 아닌데...\n");
                 penalty++;
             }
-
         }
-        
     }
     if((cus->icecream_cup->top) > -1){
         penalty += ((cus->icecream_cup->top)+1);
@@ -213,14 +237,38 @@ int delivery_order(Customer* cus){
     return penalty;
 }
 
-void get_order(Owner* ice_owner){
+int prepare_order(Owner* ice_owner){
+    Customer* cus = dequeue(ice_owner->q);
+    if(cus == NULL) return -1;
+    Stack* icecream_cup = cus->icecream_cup;
+    printf("주문 수행 시작\n");
+    init_cup(icecream_cup);
+
+    int cupsize = -1;
+    printf("사장 : 고객님이 요청하신 컵사이즈가 뭐였지?\n");
+    scanf("%d", &cupsize);
+
+    int i, choice;
+
+    for(i=0; i<cupsize; i++){
+        printf("사장 : 몇 번 아이스크림을 쌓아야 하지?\n");
+        scanf("%d", &choice);
+        push(choice, icecream_cup);
+    }
+    int penalty = delivery_order(cus);
+    cal_sales(ice_owner, cus->cup_size, penalty);
+    return 0;
+}
+
+
+int get_order(Owner* ice_owner){
     int row;
     int col;
     Customer* cus = create_customer();
     int i;
     Sleep(1000);
     srand(time(NULL));
-    printf("나 : 고객님 주문받겠습니다.\n");
+    printf("사장 : 고객님 주문받겠습니다.\n");
     cus->cup_size = (rand() % MAX_CUPSIZE)+1;
     printf("고객 : 저 컵사이즈는 %d번으로 해주시고, 맛은 ",cus->cup_size);
     for(i = 0; i < cus->cup_size; i++){
@@ -237,10 +285,15 @@ void get_order(Owner* ice_owner){
         //printf("%d번 %s, ", icecream_tb[row][col]->number, icecream_tb[row][col]->name);
         printf("%s, ", icecream_tb[row][col]->name);
     }
-    printf("순서로 주세요\n");
-    prepare_order(cus->icecream_cup);
-    int penalty = delivery_order(cus);
-    cal_sales(ice_owner, cus->cup_size, penalty);
+    printf("이 순서로 주세요\n");
+    int ret = enqueue(ice_owner->q, cus);
+    if(ret == -1){
+        free(cus);
+        return -1;
+    }
+    return 0;
+    //int penalty = delivery_order(cus);
+    //cal_sales(ice_owner, cus->cup_size, penalty);
 }
 
 /*void orderprint(Customer x){
@@ -264,14 +317,21 @@ int main(){
     Owner ice_owner;
     owner_init(&ice_owner);
     int i = 0;
-
-    get_order(&ice_owner);
+    for(i=0; i<MAX_CUSTOMER_SIZE; i++){
+        Sleep(1000);
+        if(get_order(&ice_owner)==-1) printf("사장 : 오늘 장사는 마감했습니다. 죄송합니다.\n");
+    }
+    for(i=0; i<MAX_CUSTOMER_SIZE; i++){
+        Sleep(1000);
+        if(prepare_order(&ice_owner)==-1) printf("사장 : 찾아 온 손님이 없네...\n");
+    }
+    /*get_order(&ice_owner);
     printf("단속원 떴다!\n");
     transposed_icecream();
     get_order(&ice_owner);
     printf("단속원 갔다!\n");
     transposed_icecream();
-    get_order(&ice_owner);
+    get_order(&ice_owner);*/
 
     printf("최종 수익: %d\n", ice_owner.total_income);
 
